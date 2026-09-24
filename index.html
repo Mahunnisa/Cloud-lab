@@ -102,7 +102,7 @@
     onSnapshot, query, orderBy, serverTimestamp
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    const firebaseConfig = {
+  const firebaseConfig = {
     apiKey: "AIzaSyDj5KEmqhGH1chCsgTd7yPtqZyDUFCg2cQ",
     authDomain: "cloud-lab-464f1.firebaseapp.com",
     projectId: "cloud-lab-464f1",
@@ -112,10 +112,6 @@
   };
 
   const app = initializeApp(firebaseConfig);
-
-// Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-
   const db = getFirestore(app);
   const col = collection(db, "contacts");
 
