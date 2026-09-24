@@ -51,6 +51,7 @@
     border-radius: 6px;
     padding: 8px 14px;
   }
+  button:disabled { opacity: .6; cursor: default; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--danger); }
   ul { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 8px; }
@@ -69,7 +70,8 @@
   .info strong, .info span { display: block; overflow-wrap: anywhere; }
   .info span { color: var(--muted); font-size: .9rem; }
   .actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .empty { color: var(--muted); text-align: center; padding: 20px 0; }
+  .empty { color: var(--muted); justify-content: center; }
+  #error { color: var(--danger); font-size: .9rem; margin-top: 12px; min-height: 1em; }
 </style>
 </head>
 <body>
@@ -89,28 +91,51 @@
     </div>
   </form>
 
+  <div id="error" role="alert"></div>
   <ul id="list"></ul>
 </main>
 
-<script>
-  const KEY = "contacts";
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
+    onSnapshot, query, orderBy, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // 1) PASTE YOUR FIREBASE CONFIG HERE (Firebase console > Project settings > Your apps > Web app)
+ // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyDj5KEmqhGH1chCsgTd7yPtqZyDUFCg2cQ",
+  authDomain: "cloud-lab-464f1.firebaseapp.com",
+  projectId: "cloud-lab-464f1",
+  storageBucket: "cloud-lab-464f1.firebasestorage.app",
+  messagingSenderId: "1083703327416",
+  appId: "1:1083703327416:web:a327452329d3f5819e524d"
+};
+
+// Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+
+  const db = getFirestore(app);
+  const col = collection(db, "contacts");
+
   const form = document.getElementById("form");
   const nameEl = document.getElementById("name");
   const contactEl = document.getElementById("contact");
   const submitBtn = document.getElementById("submitBtn");
   const cancelBtn = document.getElementById("cancelBtn");
   const listEl = document.getElementById("list");
+  const errorEl = document.getElementById("error");
 
-  let contacts = load();
+  let contacts = [];
   let editingId = null;
 
-  function load() {
-    try { return JSON.parse(localStorage.getItem(KEY)) || []; }
-    catch { return []; }
-  }
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(contacts)); } catch {}
-  }
+  function showError(msg) { errorEl.textContent = msg || ""; }
 
   function resetForm() {
     editingId = null;
@@ -122,7 +147,7 @@
   function render() {
     listEl.innerHTML = "";
     if (!contacts.length) {
-      listEl.innerHTML = '<li class="empty" style="justify-content:center">No contacts yet. Add one above.</li>';
+      listEl.innerHTML = '<li class="empty">No contacts yet. Add one above.</li>';
       return;
     }
     contacts.forEach(c => {
@@ -165,30 +190,49 @@
     render();
   }
 
-  function remove(id) {
-    contacts = contacts.filter(c => c.id !== id);
-    if (editingId === id) resetForm();
-    save();
-    render();
+  async function remove(id) {
+    showError("");
+    try {
+      await deleteDoc(doc(db, "contacts", id));
+      if (editingId === id) resetForm();
+    } catch (err) {
+      showError("Could not delete: " + err.message);
+    }
   }
 
-  form.addEventListener("submit", e => {
+  form.addEventListener("submit", async e => {
     e.preventDefault();
     const name = nameEl.value.trim();
     const contact = contactEl.value.trim();
     if (!name || !contact) return;
 
-    if (editingId) {
-      contacts = contacts.map(c => c.id === editingId ? { ...c, name, contact } : c);
-    } else {
-      contacts.push({ id: Date.now().toString(36), name, contact });
+    showError("");
+    submitBtn.disabled = true;
+    try {
+      if (editingId) {
+        await updateDoc(doc(db, "contacts", editingId), { name, contact });
+      } else {
+        await addDoc(col, { name, contact, createdAt: serverTimestamp() });
+      }
+      resetForm();
+    } catch (err) {
+      showError("Could not save: " + err.message);
+    } finally {
+      submitBtn.disabled = false;
     }
-    save();
-    resetForm();
-    render();
   });
 
   cancelBtn.addEventListener("click", () => { resetForm(); render(); });
+
+  // Live updates from Firestore
+  onSnapshot(
+    query(col, orderBy("createdAt", "asc")),
+    snap => {
+      contacts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    },
+    err => showError("Could not load contacts: " + err.message)
+  );
 
   render();
 </script>
