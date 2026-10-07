@@ -24,16 +24,36 @@
   }
   main { max-width: 520px; margin: 0 auto; }
   h1 { font-size: 1.5rem; margin: 0 0 20px; }
-  form {
-    display: grid;
-    gap: 10px;
+  .chat {
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 10px;
     padding: 16px;
   }
-  label { font-size: .85rem; color: var(--muted); display: grid; gap: 4px; }
+  #log {
+    height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .msg {
+    padding: 8px 12px;
+    border-radius: 10px;
+    max-width: 88%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: .95rem;
+  }
+  .msg small { display: block; margin-top: 4px; color: var(--muted); font-size: .75rem; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.bot { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }
+  .msg.err { color: var(--danger); }
+  #form { display: flex; gap: 8px; }
   input {
+    flex: 1;
+    min-width: 0;
     font: inherit;
     padding: 9px 10px;
     border: 1px solid var(--line);
@@ -41,7 +61,6 @@
     color: var(--ink);
   }
   input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .row { display: flex; gap: 8px; }
   button {
     font: inherit;
     cursor: pointer;
@@ -53,24 +72,16 @@
   }
   button:disabled { opacity: .6; cursor: default; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.danger { color: var(--danger); }
   ul { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 8px; }
   li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 10px;
     padding: 12px 14px;
   }
-  li.editing { border-color: var(--accent); }
-  .info { min-width: 0; }
   .info strong, .info span { display: block; overflow-wrap: anywhere; }
   .info span { color: var(--muted); font-size: .9rem; }
-  .actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .empty { color: var(--muted); justify-content: center; }
+  .empty { color: var(--muted); text-align: center; }
   #error { color: var(--danger); font-size: .9rem; margin-top: 12px; min-height: 1em; }
 </style>
 </head>
@@ -78,18 +89,13 @@
 <main>
   <h1>Contact List</h1>
 
-  <form id="form">
-    <label>Name
-      <input id="name" required maxlength="60" autocomplete="off">
-    </label>
-    <label>Contact
-      <input id="contact" required maxlength="80" autocomplete="off" placeholder="Phone or email">
-    </label>
-    <div class="row">
-      <button type="submit" class="primary" id="submitBtn">Add contact</button>
-      <button type="button" id="cancelBtn" hidden>Cancel</button>
-    </div>
-  </form>
+  <section class="chat">
+    <div id="log" aria-live="polite"></div>
+    <form id="form">
+      <input id="msg" required maxlength="300" autocomplete="off" placeholder="e.g. add Sara 0311-5551234">
+      <button type="submit" class="primary" id="sendBtn">Send</button>
+    </form>
+  </section>
 
   <div id="error" role="alert"></div>
   <ul id="list"></ul>
@@ -116,35 +122,40 @@
   const col = collection(db, "contacts");
 
   const form = document.getElementById("form");
-  const nameEl = document.getElementById("name");
-  const contactEl = document.getElementById("contact");
-  const submitBtn = document.getElementById("submitBtn");
-  const cancelBtn = document.getElementById("cancelBtn");
+  const msgEl = document.getElementById("msg");
+  const sendBtn = document.getElementById("sendBtn");
+  const logEl = document.getElementById("log");
   const listEl = document.getElementById("list");
   const errorEl = document.getElementById("error");
 
   let contacts = [];
-  let editingId = null;
 
   function showError(msg) { errorEl.textContent = msg || ""; }
 
-  function resetForm() {
-    editingId = null;
-    form.reset();
-    submitBtn.textContent = "Add contact";
-    cancelBtn.hidden = true;
+  /* ---------- chat log ---------- */
+  function say(text, kind = "bot", via = "") {
+    const d = document.createElement("div");
+    d.className = "msg " + (kind === "user" ? "user" : "bot" + (kind === "err" ? " err" : ""));
+    d.textContent = text;
+    if (via) {
+      const s = document.createElement("small");
+      s.textContent = via;
+      d.append(s);
+    }
+    logEl.append(d);
+    logEl.scrollTop = logEl.scrollHeight;
+    return d;
   }
 
+  /* ---------- contact list (read-only, no edit/delete buttons) ---------- */
   function render() {
     listEl.innerHTML = "";
     if (!contacts.length) {
-      listEl.innerHTML = '<li class="empty">No contacts yet. Add one above.</li>';
+      listEl.innerHTML = '<li class="empty">No contacts yet. Ask the chat to add one.</li>';
       return;
     }
     contacts.forEach(c => {
       const li = document.createElement("li");
-      if (c.id === editingId) li.className = "editing";
-
       const info = document.createElement("div");
       info.className = "info";
       const n = document.createElement("strong");
@@ -152,70 +163,104 @@
       const t = document.createElement("span");
       t.textContent = c.contact;
       info.append(n, t);
-
-      const actions = document.createElement("div");
-      actions.className = "actions";
-      const edit = document.createElement("button");
-      edit.textContent = "Edit";
-      edit.onclick = () => startEdit(c.id);
-      const del = document.createElement("button");
-      del.textContent = "Delete";
-      del.className = "danger";
-      del.onclick = () => remove(c.id);
-      actions.append(edit, del);
-
-      li.append(info, actions);
+      li.append(info);
       listEl.append(li);
     });
   }
 
-  function startEdit(id) {
-    const c = contacts.find(x => x.id === id);
-    if (!c) return;
-    editingId = id;
-    nameEl.value = c.name;
-    contactEl.value = c.contact;
-    submitBtn.textContent = "Save changes";
-    cancelBtn.hidden = false;
-    nameEl.focus();
-    render();
-  }
+  /* ---------- apply the actions chosen by the LLMs ---------- */
+  const same = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 
-  async function remove(id) {
-    showError("");
-    try {
-      await deleteDoc(doc(db, "contacts", id));
-      if (editingId === id) resetForm();
-    } catch (err) {
-      showError("Could not delete: " + err.message);
+  async function applyActions(actions) {
+    const working = contacts.map(c => ({ ...c }));  // keeps multi-command messages consistent
+    const results = [];
+
+    for (const a of actions) {
+      const say2 = (text, kind) => results.push({ text, kind, via: a.via && a.via !== "error" ? a.via : "" });
+
+      if (a.type === "reply") { say2(a.message, a.via === "error" ? "err" : "bot"); continue; }
+
+      if (a.type === "list_contacts") {
+        say2(working.length ? working.map(c => `${c.name}: ${c.contact}`).join("\n") : "No contacts yet.");
+        continue;
+      }
+
+      if (a.type === "add_contact") {
+        const name = (a.name || "").trim(), contact = (a.contact || "").trim();
+        if (!name || !contact) { say2("I need both a name and a contact to add.", "err"); continue; }
+        if (working.find(c => same(c.name, name))) { say2(`"${name}" already exists. Ask me to edit it instead.`, "err"); continue; }
+        await addDoc(col, { name, contact, createdAt: serverTimestamp() });
+        working.push({ id: "tmp" + Math.random(), name, contact });
+        say2(`Added ${name} (${contact}).`);
+        continue;
+      }
+
+      if (a.type === "edit_contact") {
+        const c = working.find(x => same(x.name, a.name));
+        if (!c) { say2(`No contact named "${a.name}".`, "err"); continue; }
+        const payload = {};
+        if (a.new_contact && a.new_contact.trim()) payload.contact = a.new_contact.trim();
+        if (a.new_name && a.new_name.trim()) {
+          if (working.find(x => x !== c && same(x.name, a.new_name))) { say2(`"${a.new_name}" already exists.`, "err"); continue; }
+          payload.name = a.new_name.trim();
+        }
+        if (!Object.keys(payload).length) { say2("Nothing to change.", "err"); continue; }
+        await updateDoc(doc(db, "contacts", c.id), payload);
+        say2(`Updated ${c.name}${payload.name ? " → " + payload.name : ""}${payload.contact ? " (" + payload.contact + ")" : ""}.`);
+        Object.assign(c, payload);
+        continue;
+      }
+
+      if (a.type === "delete_contact") {
+        const i = working.findIndex(x => same(x.name, a.name));
+        if (i === -1) { say2(`No contact named "${a.name}".`, "err"); continue; }
+        await deleteDoc(doc(db, "contacts", working[i].id));
+        say2(`Deleted ${working[i].name}.`);
+        working.splice(i, 1);
+        continue;
+      }
     }
+    return results;
   }
 
+  /* ---------- send a chat message ---------- */
   form.addEventListener("submit", async e => {
     e.preventDefault();
-    const name = nameEl.value.trim();
-    const contact = contactEl.value.trim();
-    if (!name || !contact) return;
+    const text = msgEl.value.trim();
+    if (!text) return;
 
     showError("");
-    submitBtn.disabled = true;
+    msgEl.value = "";
+    say(text, "user");
+    sendBtn.disabled = true;
+    const pending = say("…");
+
     try {
-      if (editingId) {
-        await updateDoc(doc(db, "contacts", editingId), { name, contact });
-      } else {
-        await addDoc(col, { name, contact, createdAt: serverTimestamp() });
-      }
-      resetForm();
+      const r = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          contacts: contacts.map(c => ({ name: c.name, contact: c.contact }))
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Request failed");
+
+      const results = await applyActions(data.actions || []);
+      pending.remove();
+      if (!results.length) say("I didn't understand that. Try add, edit, delete or list.", "err");
+      results.forEach(x => say(x.text, x.kind, x.via));
     } catch (err) {
-      showError("Could not save: " + err.message);
+      pending.remove();
+      say("Error: " + err.message, "err");
     } finally {
-      submitBtn.disabled = false;
+      sendBtn.disabled = false;
+      msgEl.focus();
     }
   });
 
-  cancelBtn.addEventListener("click", () => { resetForm(); render(); });
-
-  // Live updates from Firestore
+  /* ---------- live updates from Firestore (same as v1) ---------- */
   onSnapshot(
     query(col, orderBy("createdAt", "asc")),
     snap => {
@@ -225,6 +270,7 @@
     err => showError("Could not load contacts: " + err.message)
   );
 
+  say('Hi! Tell me what to do, e.g. "add Sara 0311-5551234", "change Sara\'s number to 0300-1112223", "delete Sara" or "show all".');
   render();
 </script>
 </body>
