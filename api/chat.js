@@ -12,7 +12,7 @@ const ROUTES = {
   // model can be a comma-separated list: the first one that exists/works is used
   router: { provider: E.ROUTER_PROVIDER || "groq",   model: E.ROUTER_MODEL || "llama-3.3-70b-versatile,openai/gpt-oss-120b,llama-3.1-8b-instant" },
   add:    { provider: E.ADD_PROVIDER    || "groq",   model: E.ADD_MODEL    || "llama-3.3-70b-versatile,openai/gpt-oss-120b,llama-3.1-8b-instant" },
-  edit:   { provider: E.EDIT_PROVIDER   || "gemini", model: E.EDIT_MODEL   || "gemini-flash-latest,gemini-2.5-flash,gemini-2.0-flash" },
+  edit:   { provider: E.EDIT_PROVIDER   || "gemini", model: E.EDIT_MODEL   || "gemini-3.8-flash,gemini-flash-latest,gemini-2.5-flash" },
   delete: { provider: E.DELETE_PROVIDER || "groq",   model: E.DELETE_MODEL || "openai/gpt-oss-120b,llama-3.3-70b-versatile,llama-3.1-8b-instant" },
 };
 
@@ -64,18 +64,18 @@ async function ask(route, system, user) {
   const fn = CALLERS[route.provider];
   if (!fn) throw new Error("Unknown provider: " + route.provider);
   const models = String(route.model).split(",").map((m) => m.trim()).filter(Boolean);
-  let lastErr;
+  const errors = [];
   for (const m of models) {
     try {
       const json = parseJSON(await fn(m, system, user));
       return { json, used: `${route.provider}/${m}` };
     } catch (err) {
-      lastErr = err;
+      errors.push(`${m}: ${err.message.slice(0, 120)}`);
       // only try the next model for model-related problems, not for rate limits or missing keys
       if (!/model|not exist|access|decommission|deprecat|not found|valid JSON/i.test(err.message)) break;
     }
   }
-  throw new Error(`${lastErr.message} (tried: ${models.join(", ")})`);
+  throw new Error(errors.join(" | "));
 }
 
 const via = (route) => `${route.provider}/${route.model}`;
